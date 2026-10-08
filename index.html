@@ -64,7 +64,9 @@ main { flex: 1; overflow-y: auto; padding-block: 16px; display: flex; flex-direc
 .fix del { color: var(--pen); text-decoration-thickness: 2px; background: var(--pen-soft); border-radius: 3px; padding: 0 2px; }
 .fix ins { color: var(--ink); text-decoration: none; background: var(--ink-soft); border-radius: 3px; padding: 0 2px; font-weight: 600; }
 .fix ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
-.fix mark { background: var(--hl); color: inherit; padding: 0 2px; border-radius: 3px; font-size: 15px; }
+.fix mark { background: var(--hl); color: inherit; padding: 0 2px; border-radius: 3px; font-size: 15px; cursor: pointer; }
+.fix ins { cursor: pointer; }
+.note ins { cursor: pointer; }
 .verdict { align-self: flex-start; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 10px; }
 .verdict.ok { color: var(--ink); background: var(--ink-soft); }
 .verdict.mid { color: var(--fg); background: var(--hl); }
@@ -212,10 +214,10 @@ function fixCard(r) {
   if (!corr.length && !natural && vCls === "ok") return `<span class="ok">✓ 통했어요 · 원어민도 이렇게 말해요</span>`;
   let h = `<div class="fix"><div class="verdict ${vCls}">${vText}</div>`;
   if (vCls !== "ok" && r.meaning_ko) h += `<div class="heard">외국인은 이렇게 알아들어요: ${esc(r.meaning_ko)}</div>`;
-  if (natural) h += `<div><div class="label">원어민은 이렇게 말해요</div><mark>${esc(natural)}</mark></div>`;
+  if (natural) h += `<div><div class="label">원어민은 이렇게 말해요</div><mark data-say="${esc(natural)}" title="누르면 읽어줘요">${esc(natural)}</mark></div>`;
   if (corr.length) {
     h += `<div class="label">꼭 고칠 부분</div><ul>`;
-    for (const c of corr) h += `<li><del>${esc(c.wrong || "—")}</del> → <ins>${esc(c.right)}</ins> · ${esc(c.why || "")}</li>`;
+    for (const c of corr) h += `<li><del>${esc(c.wrong || "—")}</del> → <ins data-say="${esc(c.right)}" title="누르면 읽어줘요">${esc(c.right)}</ins> · ${esc(c.why || "")}</li>`;
     h += `</ul>`;
   }
   return h + `</div>`;
@@ -262,6 +264,8 @@ function notes() {
   return turns.filter((t) => t.role === "ai" && (t.natural || (t.corrections && t.corrections.length))).reverse();
 }
 $("chat").addEventListener("click", (e) => {
+  const say = e.target.closest("[data-say]");
+  if (say) { speak(say.dataset.say); return; }
   const sp = e.target.closest("[data-speak]");
   if (sp) { const b = sp.closest(".msg").querySelector(".bubble"); speak(b.childNodes[0].textContent); return; }
   const ko = e.target.closest("[data-ko]");
@@ -338,14 +342,17 @@ function renderNotes() {
     const said = (turns.find((u) => u.id === t.re) || {}).text || "";
     const why = (t.corrections || []).map((c) => `${c.wrong} → ${c.right}: ${c.why || ""}`).join(" · ");
     return `<div class="note"><div class="said">내가 한 말: ${esc(said)}</div>
-      <div><ins>${esc(t.natural || (t.corrections || []).map((c) => c.right).join(" / "))}</ins></div>
+      <div><ins data-say="${esc(t.natural || (t.corrections || []).map((c) => c.right).join(". "))}">${esc(t.natural || (t.corrections || []).map((c) => c.right).join(" / "))}</ins></div>
       ${why ? `<div class="why">${esc(why)}</div>` : ""}
       <div class="meta">${esc(new Date(t.ts || 0).toISOString().slice(0, 10))}</div></div>`;
   }).join("") : `<p class="empty">아직 저장된 표현이 없어요. 대화하면서 "원어민은 이렇게 말해요" 표현이 여기에 쌓여요.</p>`;
 }
 $("notesBtn").onclick = () => { renderNotes(); $("drawer").hidden = false; };
 $("closeNotes").onclick = () => { $("drawer").hidden = true; };
-$("drawer").addEventListener("click", (e) => { if (e.target === $("drawer")) $("drawer").hidden = true; });
+$("drawer").addEventListener("click", (e) => {
+  if (e.target === $("drawer")) $("drawer").hidden = true;
+  const say = e.target.closest("[data-say]"); if (say) speak(say.dataset.say);
+});
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("drawer").hidden = true; });
 </script>
 </body>
