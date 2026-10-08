@@ -107,7 +107,7 @@ textarea:focus { border-color: var(--accent); outline: none; }
 
 <div class="gate" id="gate">
   <h1>Talk<span style="color:var(--pen)">pen</span></h1>
-  <p>말하면 내 클로드 세션이 뜻이 통했는지, 원어민은 어떻게 말하는지 알려줘요.</p>
+  <p>말하면 내 클로드 세션이 뜻이 통했는지, 원어민은 어떻게 말하는지 알려줘요. 세션이 켜져 있을 때 답이 와요.</p>
   <button class="big" id="loginBtn" type="button">Google로 로그인</button>
   <p id="gateMsg"></p>
 </div>
@@ -138,7 +138,7 @@ textarea:focus { border-color: var(--accent); outline: none; }
       <textarea id="input" rows="1" placeholder="🎤를 누르고 영어로 말하세요 (타이핑도 돼요)"></textarea>
       <button class="send" id="sendBtn" type="submit">보내기</button>
     </form>
-    <div class="hint" id="hint">보내면 세션을 호출해요. 답은 보통 1분 안에 와요.</div>
+    <div class="hint" id="hint">보내면 내 세션이 답해요. 보통 30초 안에 와요.</div>
   </footer>
 </div>
 
@@ -158,8 +158,7 @@ var firebaseConfig={apiKey:"AIzaSyDV_8R2w2YjINtcmTsxpG0AsLEpaTMRVkg",authDomain:
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth(), db = firebase.firestore();
 const ALLOWED = "foodkarshiva@gmail.com";
-const COL = "english_turns";          // user turns + AI replies, one doc each
-const WAKE_SID = "english";           // sid the dabin-board relay/daemon maps to the English session
+const COL = "english_turns";          // user turns + AI replies, one doc each. The tutor session polls this (tools/talkpen.js watch).
 
 const SCENARIOS = [
   { id: "free", name: "자유 대화", opener: "Hey! How's your day going so far? Did you do anything fun today?", ko: "안녕! 오늘 하루 어때? 재밌는 거 했어?" },
@@ -240,7 +239,7 @@ function render() {
   for (const t of list) {
     if (t.role === "user") {
       const r = replies[t.id];
-      h += `<div class="msg me"><div class="bubble">${esc(t.text)}</div>${r ? fixCard(r) : `<span class="wait">세션 호출함 · 답 기다리는 중…</span>`}</div>`;
+      h += `<div class="msg me"><div class="bubble">${esc(t.text)}</div>${r ? fixCard(r) : `<span class="wait">답 기다리는 중…</span>`}</div>`;
       if (r && r.text) h += aiMsg(r.text, r.ko);
     }
   }
@@ -263,16 +262,7 @@ $("scen").addEventListener("click", (e) => {
 });
 $("level").onchange = (e) => { pref.level = e.target.value; store.set("talkpen.pref", pref); };
 
-/* ===== send: write the turn, then ring the same _wake doc dabin-board uses ===== */
-function wakeMerge(sid) {
-  const ref = db.collection("debate_state").doc("_wake");
-  return ref.get().then((d) => {
-    const w = d.exists ? d.data() : {};
-    const cur = ((w.ts || 0) > (w.done || 0)) ? String(w.sids || "").split(",").filter(Boolean) : [];
-    if (cur.indexOf(sid) < 0) cur.push(sid);
-    return ref.set({ sids: cur.join(","), ts: Date.now() }, { merge: true });
-  });
-}
+/* ===== send: write the turn with answered:false; the tutor session's watcher picks it up ===== */
 async function send(text) {
   if (!me) return;
   $("sendBtn").disabled = true;
@@ -283,10 +273,9 @@ async function send(text) {
     await db.collection(COL).add({
       role: "user", uid: me.uid, email: me.email, text, ts,
       day: new Date(ts).toISOString().slice(0, 10),
-      scenario: s.id, scenario_name: s.name, opener: s.opener, level: pref.level,
+      scenario: s.id, scenario_name: s.name, opener: s.opener, level: pref.level, answered: false,
     });
-    await wakeMerge(WAKE_SID);
-    $("hint").textContent = "호출했어요. 답은 보통 1분 안에 와요.";
+    $("hint").textContent = "보냈어요. 답은 보통 30초 안에 와요.";
   } catch (e) {
     $("hint").textContent = "보내기 실패: " + e.message;
   } finally { $("sendBtn").disabled = false; }
