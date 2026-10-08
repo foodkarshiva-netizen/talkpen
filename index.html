@@ -50,7 +50,8 @@ main { flex: 1; overflow-y: auto; padding-block: 16px; display: flex; flex-direc
 .msg { display: flex; flex-direction: column; gap: 6px; max-width: 88%; min-width: 0; }
 .msg.me { align-self: flex-end; align-items: flex-end; }
 .bubble { padding: 10px 14px; border-radius: 14px; overflow-wrap: anywhere; }
-.ai .bubble { background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.ai .bubble { background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 4px; cursor: pointer; }
+.ai .bubble:active { background: var(--accent-soft); }
 .me .bubble { background: var(--accent); color: var(--on-accent); border-bottom-right-radius: 4px; }
 .ko { font-size: 13px; color: var(--muted); margin-top: 4px; }
 .tools { display: flex; gap: 4px; }
@@ -220,8 +221,18 @@ function fixCard(r) {
   return h + `</div>`;
 }
 function aiMsg(text, ko) {
-  return `<div class="msg ai"><div class="bubble">${esc(text)}<div class="ko" hidden>${esc(ko)}</div></div>
-    <div class="tools">${ko ? `<button class="tiny" type="button" data-ko>해석</button>` : ""}</div></div>`;
+  return `<div class="msg ai"><div class="bubble" data-speak title="누르면 읽어줘요">${esc(text)}<div class="ko" hidden>${esc(ko)}</div></div>
+    <div class="tools"><button class="tiny" type="button" data-speak>▶ 듣기</button>${ko ? `<button class="tiny" type="button" data-ko>해석</button>` : ""}</div></div>`;
+}
+/* Tap an AI line to hear it (browser voice, en-US). */
+function speak(text) {
+  if (!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "en-US"; u.rate = pref.level === "beginner" ? 0.85 : 0.95;
+  const v = speechSynthesis.getVoices().find((x) => /^en[-_]US/i.test(x.lang)) || speechSynthesis.getVoices().find((x) => /^en/i.test(x.lang));
+  if (v) u.voice = v;
+  speechSynthesis.speak(u);
 }
 function sessionTurns() {
   // Show only the current scenario's conversation; a scenario switch starts fresh on screen (history stays in Firestore).
@@ -251,6 +262,8 @@ function notes() {
   return turns.filter((t) => t.role === "ai" && (t.natural || (t.corrections && t.corrections.length))).reverse();
 }
 $("chat").addEventListener("click", (e) => {
+  const sp = e.target.closest("[data-speak]");
+  if (sp) { const b = sp.closest(".msg").querySelector(".bubble"); speak(b.childNodes[0].textContent); return; }
   const ko = e.target.closest("[data-ko]");
   if (ko) { const el = ko.closest(".msg").querySelector(".ko"); el.hidden = !el.hidden; ko.textContent = el.hidden ? "해석" : "해석 숨기기"; }
 });
