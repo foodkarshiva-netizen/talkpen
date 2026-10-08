@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Talkpen 영어회화</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2747d6">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Talkpen">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
 <style>
@@ -120,6 +128,7 @@ textarea:focus { border-color: var(--accent); outline: none; }
     <div class="top">
       <h1 class="brand">Talk<span>pen</span></h1>
       <button class="ghost" id="notesBtn" type="button">표현 노트 <span class="count" id="noteCount">0</span></button>
+      <button class="ghost" id="installBtn" type="button" hidden>앱 설치</button>
       <button class="ghost" id="logoutBtn" type="button">로그아웃</button>
     </div>
     <div class="controls">
@@ -354,6 +363,13 @@ $("drawer").addEventListener("click", (e) => {
   const say = e.target.closest("[data-say]"); if (say) speak(say.dataset.say);
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("drawer").hidden = true; });
+
+/* ===== install as an app ===== */
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+let installEvt = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; $("installBtn").hidden = false; });
+$("installBtn").onclick = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice; installEvt = null; $("installBtn").hidden = true; };
+window.addEventListener("appinstalled", () => { $("installBtn").hidden = true; });
 </script>
 </body>
 </html>
