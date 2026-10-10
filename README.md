@@ -1,6 +1,6 @@
 # Talkpen
 
-영어회화 연습 앱. GitHub Pages + Google 로그인 + Firestore. 답은 내 PC에서 돌아가는 클로드 세션이 단다.
+영어·일본어 회화 연습 앱. GitHub Pages + Google 로그인 + Firestore. 답은 내 PC에서 돌아가는 클로드 세션이 단다.
 
 - `index.html` — 앱 화면 (마이크로 말하기, 뜻 통했는지 / 원어민 표현 / 대화)
 - `SESSION.md` — 답하는 클로드 세션이 읽을 지침

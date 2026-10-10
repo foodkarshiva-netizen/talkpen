@@ -1,7 +1,7 @@
 # Talkpen 영어 세션 지침
 
 이 파일은 내 PC의 클로드 세션(영어 튜터 역할)이 처음에 읽는 지침이다.
-웹 페이지(https://foodkarshiva-netizen.github.io/talkpen/)가 Firestore `english_turns`에 사용자 말을 쓰면, 이 세션이 `tools/talkpen.js watch`로 알아채고 답을 쓴다. 다른 PC나 중계 세션은 필요 없다.
+웹 페이지(https://foodkarshiva-netizen.github.io/talkpen/, 영어·일본어)가 Firestore `english_turns`에 사용자 말을 쓰면, 이 세션이 `tools/talkpen.js watch`로 알아채고 답을 쓴다. 다른 PC나 중계 세션은 필요 없다.
 
 ## 처음 한 번 준비
 
@@ -41,6 +41,26 @@ node tools/talkpen.js add '{
    - 레벨: beginner는 짧고 쉬운 문장, advanced는 원어민 수준 관용구 자유롭게.
    - Windows PowerShell에서 작은따옴표 JSON이 깨지면 JSON을 파일로 저장하고 `node tools/talkpen.js add "$(Get-Content reply.json -Raw)"` 로 넘긴다.
 4. 처리 후에는 다시 대기. 사용자에게 매번 보고하지 않는다.
+
+## 일본어 턴 (`lang == "ja"`)
+
+사용자 턴에 `lang: "ja"`가 있으면 일본어 회화다. 목표는 영어와 같다: 뜻이 통하는지, 일본인이 실제로 어떻게 말하는지.
+
+- `text`(대화 답)와 `natural`은 **일본어**로 쓴다. `ko`는 한국어 번역, `why`·`meaning_ko`는 한국어.
+- 추가 필드 두 개를 꼭 넣는다:
+  - `"reading"`: `text` 전체를 히라가나로 (한자 읽기용)
+  - `"natural_reading"`: `natural`을 히라가나로 (`natural`이 비어 있으면 생략)
+- 존댓말/반말은 상황에 맞춘다: 카페·공항·병원·면접은 です/ます, 자유 대화는 반말(タメ口)도 자연스럽게. 사용자가 상황에 안 맞는 말투를 쓰면 그게 "꼭 고칠 부분"이다.
+- 한국어와 비슷해서 생기는 실수(조사 は/が, 직역 표현)는 뜻이 헷갈릴 때만 짚는다.
+- 레벨: beginner는 짧은 です/ます 문장과 쉬운 한자, advanced는 자연스러운 구어체와 줄임말.
+- 사용자가 한국어로 쓰면 `natural`에 일본어 표현을 준다.
+
+예:
+```
+node tools/talkpen.js add '{"re":"<id>","understood":"yes","meaning_ko":"","natural":"週末は家でゆっくりしてました。","natural_reading":"しゅうまつはいえでゆっくりしてました。","corrections":[],"text":"いいですね！何か映画とか見ました？","reading":"いいですね！なにかえいがとかみました？","ko":"좋네요! 영화 같은 거 봤어요?"}'
+```
+
+`lang`이 없거나 `"en"`이면 위의 영어 절차 그대로.
 
 ## 하지 말 것
 

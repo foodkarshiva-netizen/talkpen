@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Talkpen 영어회화</title>
+<title>Talkpen 회화</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#2747d6">
 <meta name="mobile-web-app-capable" content="yes">
@@ -62,6 +62,7 @@ main { flex: 1; overflow-y: auto; padding-block: 16px; display: flex; flex-direc
 .ai .bubble:active { background: var(--accent-soft); }
 .me .bubble { background: var(--accent); color: var(--on-accent); border-bottom-right-radius: 4px; }
 .ko { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.reading { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .tools { display: flex; gap: 4px; }
 .tiny { background: none; border: none; color: var(--muted); font-size: 12px; padding: 2px 6px; border-radius: 6px; }
 .tiny:hover { background: var(--accent-soft); color: var(--fg); }
@@ -118,7 +119,7 @@ textarea:focus { border-color: var(--accent); outline: none; }
 
 <div class="gate" id="gate">
   <h1>Talk<span style="color:var(--pen)">pen</span></h1>
-  <p>말하면 내 클로드 세션이 뜻이 통했는지, 원어민은 어떻게 말하는지 알려줘요. 세션이 켜져 있을 때 답이 와요.</p>
+  <p>영어·일본어로 말하면 내 클로드 세션이 뜻이 통했는지, 원어민은 어떻게 말하는지 알려줘요. 세션이 켜져 있을 때 답이 와요.</p>
   <button class="big" id="loginBtn" type="button">Google로 로그인</button>
   <p id="gateMsg"></p>
 </div>
@@ -133,6 +134,10 @@ textarea:focus { border-color: var(--accent); outline: none; }
     </div>
     <div class="controls">
       <div class="scen" id="scen" role="group" aria-label="대화 상황"></div>
+      <select id="lang" aria-label="언어">
+        <option value="en">🇺🇸 English</option>
+        <option value="ja">🇯🇵 日本語</option>
+      </select>
       <select id="level" aria-label="레벨">
         <option value="beginner">초급</option>
         <option value="intermediate" selected>중급</option>
@@ -172,13 +177,29 @@ const auth = firebase.auth(), db = firebase.firestore();
 const ALLOWED = "foodkarshiva@gmail.com";
 const COL = "english_turns";          // user turns + AI replies, one doc each. The tutor session polls this (tools/talkpen.js watch).
 
+const LANGS = {
+  en: { label: "English", sr: "en-US", voice: [/^en[-_]US/i, /^en/i], name: "영어" },
+  ja: { label: "日本語", sr: "ja-JP", voice: [/^ja/i], name: "일본어" },
+};
 const SCENARIOS = [
-  { id: "free", name: "자유 대화", opener: "Hey! How's your day going so far? Did you do anything fun today?", ko: "안녕! 오늘 하루 어때? 재밌는 거 했어?" },
-  { id: "cafe", name: "카페 주문", opener: "Hi there, welcome in! What can I get started for you today?", ko: "어서 오세요! 뭐 준비해 드릴까요?" },
-  { id: "travel", name: "여행·공항", opener: "Good morning! May I see your passport, please? Where are you flying to today?", ko: "여권 좀 보여주시겠어요? 오늘 어디로 가세요?" },
-  { id: "interview", name: "영어 면접", opener: "Thanks for coming in today. To start, could you tell me a little about yourself?", ko: "와주셔서 감사해요. 먼저 자기소개 부탁드려요." },
-  { id: "work", name: "직장 스몰톡", opener: "Morning! How was your weekend? Get up to anything good?", ko: "좋은 아침! 주말 어땠어요?" },
-  { id: "doctor", name: "병원·약국", opener: "Hello, have a seat. So, what brings you in today?", ko: "앉으세요. 오늘 어디가 불편해서 오셨어요?" },
+  { id: "free", name: "자유 대화",
+    en: { opener: "Hey! How's your day going so far? Did you do anything fun today?", ko: "안녕! 오늘 하루 어때? 재밌는 거 했어?" },
+    ja: { opener: "やあ！今日はどんな一日？何か楽しいことあった？", reading: "やあ！きょうはどんないちにち？なにかたのしいことあった？", ko: "안녕! 오늘 하루 어때? 재밌는 거 있었어?" } },
+  { id: "cafe", name: "카페 주문",
+    en: { opener: "Hi there, welcome in! What can I get started for you today?", ko: "어서 오세요! 뭐 준비해 드릴까요?" },
+    ja: { opener: "いらっしゃいませ！ご注文はお決まりですか？", reading: "いらっしゃいませ！ごちゅうもんはおきまりですか？", ko: "어서 오세요! 주문 정하셨어요?" } },
+  { id: "travel", name: "여행·공항",
+    en: { opener: "Good morning! May I see your passport, please? Where are you flying to today?", ko: "여권 좀 보여주시겠어요? 오늘 어디로 가세요?" },
+    ja: { opener: "おはようございます。パスポートを拝見してもよろしいですか？今日はどちらまで？", reading: "おはようございます。パスポートをはいけんしてもよろしいですか？きょうはどちらまで？", ko: "좋은 아침입니다. 여권 좀 볼 수 있을까요? 오늘 어디까지 가세요?" } },
+  { id: "interview", name: "면접",
+    en: { opener: "Thanks for coming in today. To start, could you tell me a little about yourself?", ko: "와주셔서 감사해요. 먼저 자기소개 부탁드려요." },
+    ja: { opener: "本日はお越しいただきありがとうございます。まず、簡単に自己紹介をお願いできますか？", reading: "ほんじつはおこしいただきありがとうございます。まず、かんたんにじこしょうかいをおねがいできますか？", ko: "오늘 와주셔서 감사합니다. 먼저 간단히 자기소개 부탁드려요." } },
+  { id: "work", name: "직장 스몰톡",
+    en: { opener: "Morning! How was your weekend? Get up to anything good?", ko: "좋은 아침! 주말 어땠어요?" },
+    ja: { opener: "おはようございます！週末はどうでしたか？何かしました？", reading: "おはようございます！しゅうまつはどうでしたか？なにかしました？", ko: "좋은 아침이에요! 주말 어땠어요? 뭐 했어요?" } },
+  { id: "doctor", name: "병원·약국",
+    en: { opener: "Hello, have a seat. So, what brings you in today?", ko: "앉으세요. 오늘 어디가 불편해서 오셨어요?" },
+    ja: { opener: "こんにちは、どうぞおかけください。今日はどうされましたか？", reading: "こんにちは、どうぞおかけください。きょうはどうされましたか？", ko: "안녕하세요, 앉으세요. 오늘 어디가 불편하세요?" } },
 ];
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -187,7 +208,12 @@ const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? 
 
 let me = null, turns = [], unsub = null;
 let pref = store.get("talkpen.pref", { scenario: "free", level: "intermediate" });
+if (!LANGS[pref.lang]) pref.lang = "en";
+if (!pref.started) pref.started = { en: pref.startedAt || 0, ja: 0 };   // each language keeps its own on-screen conversation
 const scenario = () => SCENARIOS.find((s) => s.id === pref.scenario) || SCENARIOS[0];
+const lang = () => LANGS[pref.lang];
+const opening = () => scenario()[pref.lang];
+const turnLang = (t) => t.lang || "en";
 
 /* ===== login ===== */
 $("loginBtn").onclick = () => {
@@ -223,47 +249,48 @@ function fixCard(r) {
   if (!corr.length && !natural && vCls === "ok") return `<span class="ok">✓ 통했어요 · 원어민도 이렇게 말해요</span>`;
   let h = `<div class="fix"><div class="verdict ${vCls}">${vText}</div>`;
   if (vCls !== "ok" && r.meaning_ko) h += `<div class="heard">외국인은 이렇게 알아들어요: ${esc(r.meaning_ko)}</div>`;
-  if (natural) h += `<div><div class="label">원어민은 이렇게 말해요</div><mark data-say="${esc(natural)}" title="누르면 읽어줘요">${esc(natural)}</mark></div>`;
+  if (natural) h += `<div><div class="label">원어민은 이렇게 말해요</div><mark data-say="${esc(natural)}" data-lang="${turnLang(r)}" title="누르면 읽어줘요">${esc(natural)}</mark>${r.natural_reading ? `<div class="reading">${esc(r.natural_reading)}</div>` : ""}</div>`;
   if (corr.length) {
     h += `<div class="label">꼭 고칠 부분</div><ul>`;
-    for (const c of corr) h += `<li><del>${esc(c.wrong || "—")}</del> → <ins data-say="${esc(c.right)}" title="누르면 읽어줘요">${esc(c.right)}</ins> · ${esc(c.why || "")}</li>`;
+    for (const c of corr) h += `<li><del>${esc(c.wrong || "—")}</del> → <ins data-say="${esc(c.right)}" data-lang="${turnLang(r)}" title="누르면 읽어줘요">${esc(c.right)}</ins> · ${esc(c.why || "")}</li>`;
     h += `</ul>`;
   }
   return h + `</div>`;
 }
-function aiMsg(text, ko) {
-  return `<div class="msg ai"><div class="bubble" data-speak title="누르면 읽어줘요">${esc(text)}<div class="ko" hidden>${esc(ko)}</div></div>
+function aiMsg(text, ko, reading, lg) {
+  return `<div class="msg ai"><div class="bubble" data-speak data-text="${esc(text)}" data-lang="${lg}" title="누르면 읽어줘요">${esc(text)}${reading ? `<div class="reading">${esc(reading)}</div>` : ""}<div class="ko" hidden>${esc(ko)}</div></div>
     <div class="tools"><button class="tiny" type="button" data-speak>▶ 듣기</button>${ko ? `<button class="tiny" type="button" data-ko>해석</button>` : ""}</div></div>`;
 }
-/* Tap an AI line to hear it (browser voice, en-US). */
-function speak(text) {
+/* Tap a line to hear it in its own language (browser voice). */
+function speak(text, lg) {
   if (!("speechSynthesis" in window)) return;
+  const L = LANGS[lg] || LANGS.en;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = "en-US"; u.rate = pref.level === "beginner" ? 0.85 : 0.95;
-  const v = speechSynthesis.getVoices().find((x) => /^en[-_]US/i.test(x.lang)) || speechSynthesis.getVoices().find((x) => /^en/i.test(x.lang));
-  if (v) u.voice = v;
+  u.lang = L.sr; u.rate = pref.level === "beginner" ? 0.85 : 0.95;
+  const voices = speechSynthesis.getVoices();
+  for (const re of L.voice) { const v = voices.find((x) => re.test(x.lang)); if (v) { u.voice = v; break; } }
   speechSynthesis.speak(u);
 }
 function sessionTurns() {
-  // Show only the current scenario's conversation; a scenario switch starts fresh on screen (history stays in Firestore).
-  const start = pref.startedAt || 0;
-  return turns.filter((t) => (t.ts || 0) >= start);
+  // Current language only, since the last scenario switch (history stays in Firestore).
+  const start = pref.started[pref.lang] || 0;
+  return turns.filter((t) => t.role === "user" && turnLang(t) === pref.lang && (t.ts || 0) >= start);
 }
 function render() {
   const s = scenario();
   $("scen").innerHTML = SCENARIOS.map((x) => `<button class="chip" type="button" data-scen="${x.id}" aria-pressed="${x.id === s.id}">${x.name}</button>`).join("");
   $("level").value = pref.level;
-  const list = sessionTurns();
+  $("lang").value = pref.lang;
+  $("input").placeholder = `🎤를 누르고 ${lang().name}로 말하세요 (타이핑도 돼요)`;
+  const o = opening();
   const replies = {};
-  for (const t of list) if (t.role === "ai" && t.re) replies[t.re] = t;
-  let h = aiMsg(s.opener, s.ko);
-  for (const t of list) {
-    if (t.role === "user") {
-      const r = replies[t.id];
-      h += `<div class="msg me"><div class="bubble">${esc(t.text)}</div>${r ? fixCard(r) : `<span class="wait">답 기다리는 중…</span>`}</div>`;
-      if (r && r.text) h += aiMsg(r.text, r.ko);
-    }
+  for (const t of turns) if (t.role === "ai" && t.re) replies[t.re] = t;
+  let h = aiMsg(o.opener, o.ko, o.reading, pref.lang);
+  for (const t of sessionTurns()) {
+    const r = replies[t.id];
+    h += `<div class="msg me"><div class="bubble">${esc(t.text)}</div>${r ? fixCard(r) : `<span class="wait">답 기다리는 중…</span>`}</div>`;
+    if (r && r.text) h += aiMsg(r.text, r.ko, r.reading, turnLang(r));
   }
   $("chat").innerHTML = h;
   $("chat").scrollTop = $("chat").scrollHeight;
@@ -274,18 +301,19 @@ function notes() {
 }
 $("chat").addEventListener("click", (e) => {
   const say = e.target.closest("[data-say]");
-  if (say) { speak(say.dataset.say); return; }
+  if (say) { speak(say.dataset.say, say.dataset.lang); return; }
   const sp = e.target.closest("[data-speak]");
-  if (sp) { const b = sp.closest(".msg").querySelector(".bubble"); speak(b.childNodes[0].textContent); return; }
+  if (sp) { const b = sp.closest(".msg").querySelector(".bubble"); speak(b.dataset.text, b.dataset.lang); return; }
   const ko = e.target.closest("[data-ko]");
   if (ko) { const el = ko.closest(".msg").querySelector(".ko"); el.hidden = !el.hidden; ko.textContent = el.hidden ? "해석" : "해석 숨기기"; }
 });
 $("scen").addEventListener("click", (e) => {
   const b = e.target.closest("[data-scen]");
   if (!b || b.dataset.scen === pref.scenario) return;
-  pref = { ...pref, scenario: b.dataset.scen, startedAt: Date.now() };
+  pref = { ...pref, scenario: b.dataset.scen, started: { ...pref.started, [pref.lang]: Date.now() } };
   store.set("talkpen.pref", pref); render();
 });
+$("lang").onchange = (e) => { pref.lang = e.target.value; store.set("talkpen.pref", pref); render(); };
 $("level").onchange = (e) => { pref.level = e.target.value; store.set("talkpen.pref", pref); };
 
 /* ===== send: write the turn with answered:false; the tutor session's watcher picks it up ===== */
@@ -295,11 +323,11 @@ async function send(text) {
   try {
     const s = scenario();
     const ts = Date.now();
-    if (!pref.startedAt) { pref.startedAt = ts; store.set("talkpen.pref", pref); }
+    if (!pref.started[pref.lang]) { pref.started[pref.lang] = ts; store.set("talkpen.pref", pref); }
     await db.collection(COL).add({
-      role: "user", uid: me.uid, email: me.email, text, ts,
+      role: "user", uid: me.uid, email: me.email, text, ts, lang: pref.lang,
       day: new Date(ts).toISOString().slice(0, 10),
-      scenario: s.id, scenario_name: s.name, opener: s.opener, level: pref.level, answered: false,
+      scenario: s.id, scenario_name: s.name, opener: opening().opener, level: pref.level, answered: false,
     });
     $("hint").textContent = "보냈어요. 답은 보통 30초 안에 와요.";
   } catch (e) {
@@ -324,14 +352,14 @@ if (!SR) { $("micBtn").hidden = true; $("hint").textContent = "이 브라우저�
 $("micBtn").onclick = () => {
   if (rec) { try { rec.stop(); } catch {} return; }
   rec = new SR();
-  rec.lang = "en-US"; rec.interimResults = true; rec.continuous = false;
+  rec.lang = lang().sr; rec.interimResults = true; rec.continuous = false;
   const before = $("input").value.trim();
   let finalText = "";
   rec.onresult = (e) => {
     let interim = "", fin = "";
     for (const r of e.results) (r.isFinal ? (fin += r[0].transcript) : (interim += r[0].transcript));
     finalText = fin;
-    $("input").value = (before ? before + " " : "") + fin + interim; autosize();
+    $("input").value = (before ? before + (pref.lang === "ja" ? "" : " ") : "") + fin + interim; autosize();
   };
   rec.onerror = (e) => { $("hint").textContent = e.error === "not-allowed" ? "마이크 권한을 허용해 주세요." : "음성 인식 실패: " + e.error; };
   rec.onend = () => {
@@ -341,7 +369,7 @@ $("micBtn").onclick = () => {
   };
   rec.start();
   $("micBtn").classList.add("on");
-  $("hint").textContent = "듣고 있어요… 영어로 말하세요. 말이 끝나면 자동으로 보내요.";
+  $("hint").textContent = `듣고 있어요… ${lang().name}로 말하세요. 말이 끝나면 자동으로 보내요.`;
 };
 
 /* ===== notes drawer ===== */
@@ -350,8 +378,9 @@ function renderNotes() {
   $("noteList").innerHTML = n.length ? n.map((t) => {
     const said = (turns.find((u) => u.id === t.re) || {}).text || "";
     const why = (t.corrections || []).map((c) => `${c.wrong} → ${c.right}: ${c.why || ""}`).join(" · ");
-    return `<div class="note"><div class="said">내가 한 말: ${esc(said)}</div>
-      <div><ins data-say="${esc(t.natural || (t.corrections || []).map((c) => c.right).join(". "))}">${esc(t.natural || (t.corrections || []).map((c) => c.right).join(" / "))}</ins></div>
+    return `<div class="note"><div class="said">${turnLang(t) === "ja" ? "🇯🇵" : "🇺🇸"} 내가 한 말: ${esc(said)}</div>
+      <div><ins data-lang="${turnLang(t)}" data-say="${esc(t.natural || (t.corrections || []).map((c) => c.right).join(". "))}">${esc(t.natural || (t.corrections || []).map((c) => c.right).join(" / "))}</ins></div>
+      ${t.natural_reading ? `<div class="why">${esc(t.natural_reading)}</div>` : ""}
       ${why ? `<div class="why">${esc(why)}</div>` : ""}
       <div class="meta">${esc(new Date(t.ts || 0).toISOString().slice(0, 10))}</div></div>`;
   }).join("") : `<p class="empty">아직 저장된 표현이 없어요. 대화하면서 "원어민은 이렇게 말해요" 표현이 여기에 쌓여요.</p>`;
@@ -360,7 +389,7 @@ $("notesBtn").onclick = () => { renderNotes(); $("drawer").hidden = false; };
 $("closeNotes").onclick = () => { $("drawer").hidden = true; };
 $("drawer").addEventListener("click", (e) => {
   if (e.target === $("drawer")) $("drawer").hidden = true;
-  const say = e.target.closest("[data-say]"); if (say) speak(say.dataset.say);
+  const say = e.target.closest("[data-say]"); if (say) speak(say.dataset.say, say.dataset.lang);
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("drawer").hidden = true; });
 

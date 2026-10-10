@@ -116,8 +116,8 @@ async function cmdPending() {
   const ctx = pend.length ? await recent(16) : [];
   const byId = Object.fromEntries(ctx.map((t) => [t.id, t]));
   const context = ctx.map((t) => t.role === "user"
-    ? { id: t.id, who: "learner", text: t.text, scenario: t.scenario, answered: t.answered }
-    : { who: "ai", re: t.re, text: t.text, natural: t.natural, scenario: t.scenario, learner_said: (byId[t.re] || {}).text });
+    ? { id: t.id, who: "learner", lang: t.lang || "en", text: t.text, scenario: t.scenario, answered: t.answered }
+    : { who: "ai", re: t.re, lang: t.lang || "en", text: t.text, natural: t.natural, scenario: t.scenario, learner_said: (byId[t.re] || {}).text });
   console.log(JSON.stringify({ pending: pend, context }, null, 2));
 }
 
@@ -127,7 +127,7 @@ async function cmdAdd(json) {
   if (typeof r.text !== "string" || !r.text.trim()) throw new Error('"text" (reply) is required');
   const learner = docToObj(await api("GET", `/${COL}/${r.re}`));
   const doc = {
-    role: "ai", re: r.re, ts: r.ts || Date.now(), scenario: learner.scenario || "", level: learner.level || "",
+    role: "ai", re: r.re, ts: r.ts || Date.now(), lang: learner.lang || "en", scenario: learner.scenario || "", level: learner.level || "",
     understood: ["yes", "partly", "no"].includes(r.understood) ? r.understood : "yes",
     meaning_ko: typeof r.meaning_ko === "string" ? r.meaning_ko : "",
     natural: typeof r.natural === "string" ? r.natural : "",
@@ -135,6 +135,9 @@ async function cmdAdd(json) {
       .map((c) => ({ wrong: String(c.wrong || ""), right: c.right, why: String(c.why || "") })) : [],
     text: r.text, ko: typeof r.ko === "string" ? r.ko : "",
   };
+  // Japanese: hiragana readings so the learner can read and say the line.
+  if (typeof r.reading === "string" && r.reading) doc.reading = r.reading;
+  if (typeof r.natural_reading === "string" && r.natural_reading) doc.natural_reading = r.natural_reading;
   const created = await api("POST", `/${COL}`, { fields: enc(doc).mapValue.fields });
   await api("PATCH", `/${COL}/${r.re}?updateMask.fieldPaths=answered&updateMask.fieldPaths=answered_at`,
     { fields: { answered: enc(true), answered_at: enc(Date.now()) } });
