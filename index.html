@@ -46,6 +46,8 @@ header { display: flex; flex-direction: column; gap: 10px; padding-block: 14px 1
 .brand span { color: var(--pen); }
 .ghost { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
 .ghost:hover { border-color: var(--accent); }
+.ghost.call { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.ghost.call.on { background: var(--pen); border-color: var(--pen); color: var(--on-accent); }
 .count { background: var(--pen); color: var(--on-accent); border-radius: 999px; font-size: 11px; padding: 0 7px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .scen { display: flex; gap: 6px; overflow-x: auto; flex: 1; min-width: 0; scrollbar-width: none; }
@@ -128,6 +130,7 @@ textarea:focus { border-color: var(--accent); outline: none; }
   <header>
     <div class="top">
       <h1 class="brand">Talk<span>pen</span></h1>
+      <button class="ghost call" id="callBtn" type="button">📞 호출</button>
       <button class="ghost" id="notesBtn" type="button">표현 노트 <span class="count" id="noteCount">0</span></button>
       <button class="ghost" id="installBtn" type="button" hidden>앱 설치</button>
       <button class="ghost" id="logoutBtn" type="button">로그아웃</button>
@@ -156,7 +159,7 @@ textarea:focus { border-color: var(--accent); outline: none; }
       <textarea id="input" rows="1" placeholder="🎤를 누르고 영어로 말하세요 (타이핑도 돼요)"></textarea>
       <button class="send" id="sendBtn" type="submit">보내기</button>
     </form>
-    <div class="hint" id="hint">보내면 내 세션이 답해요. 보통 30초 안에 와요.</div>
+    <div class="hint" id="hint">📞 호출을 누르면 세션이 붙어서 바로바로 답해요. 다 하면 ■ 종료.</div>
   </footer>
 </div>
 
@@ -221,11 +224,54 @@ function listen() {
   setStatus(false, "연결 중…");
   unsub = db.collection(COL).orderBy("ts", "desc").limit(300).onSnapshot((snap) => {
     turns = snap.docs.map((d) => ({ id: d.id, ...d.data() })).reverse();
-    setStatus(true, "연결됨");
+    feedOk = true; liveStatus();
     render();
+    speakNewReplies();
   }, (e) => setStatus(false, "읽기 실패: " + e.message + " (Firestore 규칙 확인)"));
+  LIVE.onSnapshot((d) => { liveAck = (d.exists && d.data().ack) || 0; liveStatus(); }, () => {});
 }
 function setStatus(live, text) { $("dot").classList.toggle("live", live); $("statusText").textContent = text; }
+
+/* ===== live mode: 📞 호출 → the PC session checks every 2s and answers right away, until ■ 종료 ===== */
+const LIVE = db.collection("english_state").doc("live");
+let live = false, liveSince = 0, liveAck = 0, lastAct = 0, beatTimer = null, feedOk = false;
+const spoken = new Set();
+function liveStatus() {
+  if (!live) return setStatus(feedOk, feedOk ? "연결됨 · 📞 호출을 누르면 세션이 붙어요" : "연결 중…");
+  if (liveAck >= liveSince - 5000) setStatus(true, "🟢 실시간 대화 중 · 말하면 바로 답해요");
+  else setStatus(false, "📞 세션 부르는 중… (최대 20초)");
+}
+function setLive(on) {
+  if (on === live) return;
+  live = on; liveSince = on ? Date.now() : 0; lastAct = Date.now();
+  $("callBtn").textContent = on ? "■ 종료" : "📞 호출";
+  $("callBtn").classList.toggle("on", on);
+  clearInterval(beatTimer);
+  if (on) {
+    for (const t of turns) if (t.role === "ai") spoken.add(t.id);   // only read out replies that arrive from now on
+    LIVE.set({ active: true, started: liveSince, beat: liveSince, lang: pref.lang }, { merge: true })
+      .catch((e) => { $("hint").textContent = "호출 실패: " + e.message; setLive(false); });
+    beatTimer = setInterval(() => {
+      if (Date.now() - lastAct > 15 * 60000) { setLive(false); $("hint").textContent = "15분 동안 말이 없어서 종료했어요."; return; }
+      LIVE.set({ beat: Date.now() }, { merge: true }).catch(() => {});
+    }, 60000);
+  } else {
+    LIVE.set({ active: false, ended: Date.now() }, { merge: true }).catch(() => {});
+    if (rec) { try { rec.abort(); } catch {} }
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+  }
+  liveStatus();
+}
+$("callBtn").onclick = () => setLive(!live);
+window.addEventListener("pagehide", () => { if (live) LIVE.set({ active: false, ended: Date.now() }, { merge: true }).catch(() => {}); });
+/* In live mode a new reply is read aloud, then the mic opens again so the talk keeps going hands-free. */
+function speakNewReplies() {
+  if (!live) return;
+  const fresh = turns.filter((t) => t.role === "ai" && !spoken.has(t.id) && (t.ts || 0) >= liveSince);
+  for (const t of turns) if (t.role === "ai") spoken.add(t.id);
+  const last = fresh[fresh.length - 1];
+  if (last && last.text) speak(last.text, turnLang(last), () => { if (live && !rec) startMic(); });
+}
 
 /* ===== rendering ===== */
 const VERDICT = { yes: ["통했어요", "ok"], partly: ["대충 통했어요", "mid"], no: ["안 통했어요", "bad"] };
@@ -249,14 +295,15 @@ function aiMsg(text, ko, reading, lg) {
     <div class="tools"><button class="tiny" type="button" data-speak>▶ 듣기</button>${ko ? `<button class="tiny" type="button" data-ko>해석</button>` : ""}</div></div>`;
 }
 /* Tap a line to hear it in its own language (browser voice). */
-function speak(text, lg) {
-  if (!("speechSynthesis" in window)) return;
+function speak(text, lg, onend) {
+  if (!("speechSynthesis" in window)) { if (onend) onend(); return; }
   const L = LANGS[lg] || LANGS.en;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = L.sr; u.rate = pref.level === "beginner" ? 0.85 : 0.95;
   const voices = speechSynthesis.getVoices();
   for (const re of L.voice) { const v = voices.find((x) => re.test(x.lang)); if (v) { u.voice = v; break; } }
+  if (onend) u.onend = onend;
   speechSynthesis.speak(u);
 }
 function sessionTurns() {
@@ -303,6 +350,8 @@ $("level").onchange = (e) => { pref.level = e.target.value; store.set("talkpen.p
 /* ===== send: write the turn with answered:false; the tutor session's watcher picks it up ===== */
 async function send(text) {
   if (!me) return;
+  setLive(true);   // sending is also a call
+  lastAct = Date.now();
   $("sendBtn").disabled = true;
   try {
     const s = scenario();
@@ -313,7 +362,7 @@ async function send(text) {
       day: new Date(ts).toISOString().slice(0, 10),
       scenario: s.id, scenario_name: s.name, opener: opening().opener, level: pref.level, answered: false,
     });
-    $("hint").textContent = "보냈어요. 답은 보통 30초 안에 와요.";
+    $("hint").textContent = "보냈어요. 세션이 바로 답해요.";
   } catch (e) {
     $("hint").textContent = "보내기 실패: " + e.message;
   } finally { $("sendBtn").disabled = false; }
@@ -335,6 +384,11 @@ let rec = null;
 if (!SR) { $("micBtn").hidden = true; $("hint").textContent = "이 브라우저는 음성 입력이 안 돼요. 크롬이나 사파리로 열어주세요."; }
 $("micBtn").onclick = () => {
   if (rec) { try { rec.stop(); } catch {} return; }
+  startMic();
+};
+function startMic() {
+  if (!SR || rec) return;
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
   rec = new SR();
   rec.lang = lang().sr; rec.interimResults = true; rec.continuous = false;
   const before = $("input").value.trim();
@@ -345,16 +399,19 @@ $("micBtn").onclick = () => {
     finalText = fin;
     $("input").value = (before ? before + (pref.lang === "ja" ? "" : " ") : "") + fin + interim; autosize();
   };
-  rec.onerror = (e) => { $("hint").textContent = e.error === "not-allowed" ? "마이크 권한을 허용해 주세요." : "음성 인식 실패: " + e.error; };
+  rec.onerror = (e) => {
+    if (e.error === "no-speech" || e.error === "aborted") { $("hint").textContent = "🎤를 누르고 말하세요."; return; }
+    $("hint").textContent = e.error === "not-allowed" ? "마이크 권한을 허용해 주세요." : "음성 인식 실패: " + e.error;
+  };
   rec.onend = () => {
     $("micBtn").classList.remove("on"); rec = null;
     // Hands-free: what you said goes straight out. Edit first by tapping the box before it ends.
     if (finalText.trim() && $("input").value.trim() && document.activeElement !== $("input")) $("form").requestSubmit();
   };
-  rec.start();
+  try { rec.start(); } catch { rec = null; return; }
   $("micBtn").classList.add("on");
   $("hint").textContent = `듣고 있어요… ${lang().name}로 말하세요. 말이 끝나면 자동으로 보내요.`;
-};
+}
 
 /* ===== notes drawer ===== */
 function renderNotes() {

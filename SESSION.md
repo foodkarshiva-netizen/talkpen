@@ -8,7 +8,12 @@
 1. 이 저장소를 PC에 clone 한다 (예: `git clone https://github.com/foodkarshiva-netizen/talkpen`).
 2. Firebase 서비스 계정 키(.json)를 **저장소 밖** 안전한 곳에 둔다. 환경변수 `TALKPEN_SA`에 그 경로를 넣는다. 키 내용은 절대 채팅·파일·커밋에 적지 않는다.
 3. `node tools/talkpen.js pending` 이 JSON을 출력하면 준비 끝 (오류면 키 경로 확인).
-4. Monitor 도구로 `node tools/talkpen.js watch 15` 를 걸어둔다. 새 글이 오면 `CALL english <n> <ids>` 한 줄이 찍힌다. 그 줄이 뜰 때만 아래를 한다.
+4. Monitor 도구로 `node tools/talkpen.js watch` 를 걸어둔다 (타임아웃은 길게, 만료되면 다시 건다).
+   - 평소(대기): 20초마다 호출 스위치만 확인하고 **아무것도 출력하지 않는다.** 토큰을 쓰지 않는다.
+   - 사용자가 페이지에서 📞 호출을 누르면 `LIVE on` → 2초마다 새 말을 확인한다.
+   - 새 말이 오면 `CALL english {"pending":[...],"context":[...]}` 한 줄이 찍힌다. JSON 안에 답에 필요한 게 다 있다.
+   - ■ 종료(또는 15분 무응답, 페이지 닫힘)면 `LIVE off` → 다시 대기.
+   - `LIVE on` / `LIVE off` 줄에는 아무것도 하지 않는다.
 
 ## 역할
 
@@ -16,10 +21,13 @@
 사소한 문법·철자·구두점은 지적하지 않는다. 뜻이 안 통하거나 확실히 외국인처럼 들리는 부분만 최대 2개 짚는다.
 핵심 가르침은 "원어민은 이렇게 말한다"(일상 구어, 축약, 흔한 표현).
 
-## CALL이 뜨면 할 일
+## CALL이 뜨면 할 일 — 실시간 대화라서 속도가 제일 중요하다
 
-1. `node tools/talkpen.js pending` → `pending`(미응답 사용자 턴, 보통 1건)과 `context`(최근 대화 16턴)를 읽는다.
-2. 각 pending 턴의 `scenario_name`, `opener`(AI가 먼저 한 첫 마디), `level`(beginner/intermediate/advanced)과 context를 보고 대화를 잇는다. 같은 scenario의 턴만 맥락으로 쓴다.
+사용자는 말하고 나서 화면을 보며 기다리고 있다. 답이 오면 페이지가 소리 내어 읽고 바로 마이크를 다시 켠다.
+그러니 **CALL 줄의 JSON만 보고 곧바로 `add` 한 번**으로 끝낸다. `pending`을 다시 실행하거나, 파일을 읽거나, 사용자에게 보고하지 않는다.
+
+1. CALL 줄의 `pending`(보통 1건: id, lang, level, text)과 `context`(최근 대화)를 본다.
+2. 대화를 잇는다. 자유 대화다. 답(`text`)은 **짧게, 1~2문장**, 말로 주고받는 느낌으로.
 3. pending 턴마다 **한 번** 답을 쓴다:
 
 ```
@@ -40,7 +48,7 @@ node tools/talkpen.js add '{
    - 사용자가 영어에 대해 질문하면 `text` 안에서 짧게 답하고(한국어 가능) 역할극으로 돌아간다.
    - 레벨: beginner는 짧고 쉬운 문장, advanced는 원어민 수준 관용구 자유롭게.
    - Windows PowerShell에서 작은따옴표 JSON이 깨지면 JSON을 파일로 저장하고 `node tools/talkpen.js add "$(Get-Content reply.json -Raw)"` 로 넘긴다.
-4. 처리 후에는 다시 대기. 사용자에게 매번 보고하지 않는다.
+4. 처리 후에는 바로 다음 CALL을 기다린다. 채팅에 아무것도 쓰지 않는다.
 
 ## 일본어 턴 (`lang == "ja"`)
 
@@ -65,5 +73,5 @@ node tools/talkpen.js add '{"re":"<id>","understood":"yes","meaning_ko":"","natu
 ## 하지 말 것
 
 - 서비스 계정 키 내용을 어디에도 적지 않는다.
-- `watch` 외에 스스로 반복 조회하지 않는다 (읽기 한도).
+- `watch` 외에 스스로 반복 조회하지 않는다 (읽기 한도). 대기 중에는 아무것도 하지 않는다.
 - 사용자 턴을 직접 수정·삭제하지 않는다 (`add`가 하는 answered 표시만 예외).

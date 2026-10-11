@@ -4,7 +4,9 @@
  *
  *   node tools/talkpen.js pending          unanswered learner turns + recent context (JSON)
  *   node tools/talkpen.js add '<json>'     write one AI reply and mark the learner turn answered
- *   node tools/talkpen.js watch [seconds]  poll; print "CALL english <n> <ids>" when new turns wait
+ *   node tools/talkpen.js watch            live-mode watcher: idle = check the 호출 switch every 20s (no output);
+ *                                          live = check new turns every 2s and print "CALL english <json>" with
+ *                                          the pending turns and recent context, so the session can answer at once
  *
  * Auth: a Firebase service-account JSON key. Path from env TALKPEN_SA (or BOARD_SA).
  * Never put the key in this repository.
@@ -110,15 +112,19 @@ async function recent(n = 16) {
   return rows.reverse();
 }
 
-async function cmdPending() {
-  const pend = await pendingTurns();
+async function pendingWithContext(pend) {
+  pend = pend || await pendingTurns();
   pend.sort((a, b) => (a.ts || 0) - (b.ts || 0));
-  const ctx = pend.length ? await recent(16) : [];
+  const ctx = pend.length ? await recent(12) : [];
   const byId = Object.fromEntries(ctx.map((t) => [t.id, t]));
-  const context = ctx.map((t) => t.role === "user"
-    ? { id: t.id, who: "learner", lang: t.lang || "en", text: t.text, scenario: t.scenario, answered: t.answered }
-    : { who: "ai", re: t.re, lang: t.lang || "en", text: t.text, natural: t.natural, scenario: t.scenario, learner_said: (byId[t.re] || {}).text });
-  console.log(JSON.stringify({ pending: pend, context }, null, 2));
+  const context = ctx.filter((t) => !pend.some((p) => p.id === t.id)).map((t) => t.role === "user"
+    ? { who: "learner", lang: t.lang || "en", text: t.text }
+    : { who: "ai", lang: t.lang || "en", text: t.text, learner_said: (byId[t.re] || {}).text });
+  const pending = pend.map((t) => ({ id: t.id, lang: t.lang || "en", level: t.level, text: t.text }));
+  return { pending, context };
+}
+async function cmdPending() {
+  console.log(JSON.stringify(await pendingWithContext(), null, 2));
 }
 
 async function cmdAdd(json) {
@@ -144,18 +150,39 @@ async function cmdAdd(json) {
   console.log("ok " + created.name.split("/").pop());
 }
 
-async function cmdWatch(sec) {
-  const every = Math.max(5, Number(sec) || 15) * 1000;
-  let last = "";
-  console.log(`watching ${COL} every ${every / 1000}s`);
+/* The page's 📞 호출 button writes english_state/live {active, started, beat}. Treat it as live only while the
+   page keeps beating (it beats every 60s), and never longer than an hour. */
+const LIVE_PATH = "/english_state/live";
+async function readLive() {
+  try { return docToObj(await api("GET", LIVE_PATH)); } catch (e) { if (/^404/.test(e.message)) return {}; throw e; }
+}
+const isLive = (l, now) => !!l.active && now - (l.beat || 0) < 180000 && now - (l.started || 0) < 3600000;
+
+async function cmdWatch() {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let wasLive = false, lastKey = "", lastAck = 0;
+  console.log("watching: idle until 📞 호출");
   for (;;) {
+    let live = false;
     try {
-      const pend = await pendingTurns();
-      const key = pend.map((p) => p.id).sort().join(",");
-      if (pend.length && key !== last) { console.log(`CALL english ${pend.length} ${key} ${new Date().toISOString()}`); last = key; }
-      if (!pend.length) last = "";
+      const now = Date.now();
+      live = isLive(await readLive(), now);
+      if (live !== wasLive) {
+        console.log(live ? "LIVE on" : "LIVE off");
+        wasLive = live; lastKey = "";
+      }
+      if (live) {
+        if (now - lastAck > 30000) {
+          await api("PATCH", `${LIVE_PATH}?updateMask.fieldPaths=ack`, { fields: { ack: enc(now) } });
+          lastAck = now;
+        }
+        const pend = await pendingTurns();
+        const key = pend.map((p) => p.id).sort().join(",");
+        if (pend.length && key !== lastKey) console.log("CALL english " + JSON.stringify(await pendingWithContext(pend)));
+        lastKey = pend.length ? key : "";
+      }
     } catch (e) { console.error("watch error: " + e.message); }
-    await new Promise((r) => setTimeout(r, every));
+    await sleep(live ? 2000 : 20000);
   }
 }
 
@@ -164,7 +191,7 @@ async function cmdWatch(sec) {
   try {
     if (cmd === "pending") await cmdPending();
     else if (cmd === "add") await cmdAdd(arg);
-    else if (cmd === "watch") await cmdWatch(arg);
-    else { console.log("usage: talkpen.js pending | add '<json>' | watch [seconds]"); process.exit(1); }
+    else if (cmd === "watch") await cmdWatch();
+    else { console.log("usage: talkpen.js pending | add '<json>' | watch"); process.exit(1); }
   } catch (e) { console.error("error: " + e.message); process.exit(1); }
 })();
