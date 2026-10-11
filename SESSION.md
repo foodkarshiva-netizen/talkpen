@@ -11,7 +11,8 @@
 4. Monitor 도구로 `node tools/talkpen.js watch` 를 걸어둔다 (타임아웃은 길게, 만료되면 다시 건다).
    - 평소(대기): 20초마다 호출 스위치만 확인하고 **아무것도 출력하지 않는다.** 토큰을 쓰지 않는다.
    - 사용자가 페이지에서 📞 호출을 누르면 `LIVE on` → 2초마다 새 말을 확인한다.
-   - 새 말이 오면 `CALL english {"pending":[...],"context":[...]}` 한 줄이 찍힌다. JSON 안에 답에 필요한 게 다 있다.
+   - 새 말이 오면 `CALL english {"pending":[{"id","lang","level","text","context":[...]}]}` 한 줄이 찍힌다. JSON 안에 답에 필요한 게 다 있다.
+   - 사용자는 두 명(나, 아내)일 수 있다. 각 pending 항목의 `context`는 **그 사람의 대화만** 들어 있으니, 항목마다 자기 context만 보고 답한다.
    - ■ 종료(또는 15분 무응답, 페이지 닫힘)면 `LIVE off` → 다시 대기.
    - `LIVE on` / `LIVE off` 줄에는 아무것도 하지 않는다.
 
@@ -26,7 +27,7 @@
 사용자는 말하고 나서 화면을 보며 기다리고 있다. 답이 오면 페이지가 소리 내어 읽고 바로 마이크를 다시 켠다.
 그러니 **CALL 줄의 JSON만 보고 곧바로 `add` 한 번**으로 끝낸다. `pending`을 다시 실행하거나, 파일을 읽거나, 사용자에게 보고하지 않는다.
 
-1. CALL 줄의 `pending`(보통 1건: id, lang, level, text)과 `context`(최근 대화)를 본다.
+1. CALL 줄의 `pending` 항목(보통 1건: id, lang, level, text, context)을 본다.
 2. 대화를 잇는다. 자유 대화다. 답(`text`)은 **짧게, 1~2문장**, 말로 주고받는 느낌으로.
 3. pending 턴마다 **한 번** 답을 쓴다:
 

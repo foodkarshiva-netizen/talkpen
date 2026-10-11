@@ -178,7 +178,7 @@ textarea:focus { border-color: var(--accent); outline: none; }
 var firebaseConfig={apiKey:"AIzaSyDV_8R2w2YjINtcmTsxpG0AsLEpaTMRVkg",authDomain:"dabin-board.firebaseapp.com",projectId:"dabin-board",storageBucket:"dabin-board.firebasestorage.app",messagingSenderId:"161372753030",appId:"1:161372753030:web:30c4c881a5fb360bfc5507"};
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth(), db = firebase.firestore();
-const ALLOWED = "foodkarshiva@gmail.com";
+const ALLOWED = ["foodkarshiva@gmail.com", "eori211204@gmail.com"];   // me + wife; each sees only their own talk
 const COL = "english_turns";          // user turns + AI replies, one doc each. The tutor session polls this (tools/talkpen.js watch).
 
 const LANGS = {
@@ -210,9 +210,9 @@ $("loginBtn").onclick = () => {
   $("gateMsg").textContent = "";
   auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch((e) => { $("gateMsg").textContent = "로그인 실패: " + e.message; });
 };
-$("logoutBtn").onclick = () => auth.signOut();
+$("logoutBtn").onclick = () => { setLive(false); auth.signOut(); };
 auth.onAuthStateChanged((u) => {
-  if (u && u.email !== ALLOWED) { $("gateMsg").textContent = u.email + " 계정은 쓸 수 없어요."; auth.signOut(); return; }
+  if (u && !ALLOWED.includes(u.email)) { $("gateMsg").textContent = u.email + " 계정은 쓸 수 없어요."; auth.signOut(); return; }
   me = u;
   $("gate").hidden = !!u; $("app").hidden = !u;
   if (unsub) { unsub(); unsub = null; }
@@ -222,8 +222,10 @@ auth.onAuthStateChanged((u) => {
 /* ===== live feed ===== */
 function listen() {
   setStatus(false, "연결 중…");
-  unsub = db.collection(COL).orderBy("ts", "desc").limit(300).onSnapshot((snap) => {
-    turns = snap.docs.map((d) => ({ id: d.id, ...d.data() })).reverse();
+  LIVE = db.collection("english_state").doc("live_" + me.uid);
+  // Only my own turns and replies (the Firestore rules allow nothing else). Sorted here to avoid a composite index.
+  unsub = db.collection(COL).where("email", "==", me.email).onSnapshot((snap) => {
+    turns = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.ts || 0) - (b.ts || 0)).slice(-300);
     feedOk = true; liveStatus();
     render();
     speakNewReplies();
@@ -233,7 +235,7 @@ function listen() {
 function setStatus(live, text) { $("dot").classList.toggle("live", live); $("statusText").textContent = text; }
 
 /* ===== live mode: 📞 호출 → the PC session checks every 2s and answers right away, until ■ 종료 ===== */
-const LIVE = db.collection("english_state").doc("live");
+let LIVE = null;   // english_state/live_<uid>, set at sign-in
 let live = false, liveSince = 0, liveAck = 0, lastAct = 0, beatTimer = null, feedOk = false;
 const spoken = new Set();
 function liveStatus() {
@@ -249,7 +251,7 @@ function setLive(on) {
   clearInterval(beatTimer);
   if (on) {
     for (const t of turns) if (t.role === "ai") spoken.add(t.id);   // only read out replies that arrive from now on
-    LIVE.set({ active: true, started: liveSince, beat: liveSince, lang: pref.lang }, { merge: true })
+    LIVE.set({ active: true, started: liveSince, beat: liveSince, lang: pref.lang, email: me.email }, { merge: true })
       .catch((e) => { $("hint").textContent = "호출 실패: " + e.message; setLive(false); });
     beatTimer = setInterval(() => {
       if (Date.now() - lastAct > 15 * 60000) { setLive(false); $("hint").textContent = "15분 동안 말이 없어서 종료했어요."; return; }
@@ -263,7 +265,7 @@ function setLive(on) {
   liveStatus();
 }
 $("callBtn").onclick = () => setLive(!live);
-window.addEventListener("pagehide", () => { if (live) LIVE.set({ active: false, ended: Date.now() }, { merge: true }).catch(() => {}); });
+window.addEventListener("pagehide", () => { if (live && LIVE) LIVE.set({ active: false, ended: Date.now() }, { merge: true }).catch(() => {}); });
 /* In live mode a new reply is read aloud, then the mic opens again so the talk keeps going hands-free. */
 function speakNewReplies() {
   if (!live) return;

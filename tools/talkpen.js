@@ -4,6 +4,7 @@
  *
  *   node tools/talkpen.js pending          unanswered learner turns + recent context (JSON)
  *   node tools/talkpen.js add '<json>'     write one AI reply and mark the learner turn answered
+ *   node tools/talkpen.js backfill         one-time: copy the learner's email onto old AI replies (per-user privacy)
  *   node tools/talkpen.js watch            live-mode watcher: idle = check the 호출 switch every 20s (no output);
  *                                          live = check new turns every 2s and print "CALL english <json>" with
  *                                          the pending turns and recent context, so the session can answer at once
@@ -112,16 +113,19 @@ async function recent(n = 16) {
   return rows.reverse();
 }
 
+/* Each learner (husband, wife) has their own conversation: context only from turns with the same email. */
 async function pendingWithContext(pend) {
   pend = pend || await pendingTurns();
   pend.sort((a, b) => (a.ts || 0) - (b.ts || 0));
-  const ctx = pend.length ? await recent(12) : [];
-  const byId = Object.fromEntries(ctx.map((t) => [t.id, t]));
-  const context = ctx.filter((t) => !pend.some((p) => p.id === t.id)).map((t) => t.role === "user"
-    ? { who: "learner", lang: t.lang || "en", text: t.text }
-    : { who: "ai", lang: t.lang || "en", text: t.text, learner_said: (byId[t.re] || {}).text });
-  const pending = pend.map((t) => ({ id: t.id, lang: t.lang || "en", level: t.level, text: t.text }));
-  return { pending, context };
+  const all = pend.length ? await recent(60) : [];
+  const byId = Object.fromEntries(all.map((t) => [t.id, t]));
+  const ownerOf = (t) => t.email || (byId[t.re] || {}).email || "";
+  const pending = pend.map((p) => ({
+    id: p.id, lang: p.lang || "en", level: p.level, text: p.text,
+    context: all.filter((t) => t.id !== p.id && ownerOf(t) === p.email && (t.lang || "en") === (p.lang || "en") && (t.ts || 0) < (p.ts || 0))
+      .slice(-12).map((t) => t.role === "user" ? { who: "learner", text: t.text } : { who: "ai", text: t.text }),
+  }));
+  return { pending };
 }
 async function cmdPending() {
   console.log(JSON.stringify(await pendingWithContext(), null, 2));
@@ -133,7 +137,7 @@ async function cmdAdd(json) {
   if (typeof r.text !== "string" || !r.text.trim()) throw new Error('"text" (reply) is required');
   const learner = docToObj(await api("GET", `/${COL}/${r.re}`));
   const doc = {
-    role: "ai", re: r.re, ts: r.ts || Date.now(), lang: learner.lang || "en", scenario: learner.scenario || "", level: learner.level || "",
+    role: "ai", re: r.re, ts: r.ts || Date.now(), email: learner.email || "", uid: learner.uid || "", lang: learner.lang || "en", scenario: learner.scenario || "", level: learner.level || "",
     understood: ["yes", "partly", "no"].includes(r.understood) ? r.understood : "yes",
     meaning_ko: typeof r.meaning_ko === "string" ? r.meaning_ko : "",
     natural: typeof r.natural === "string" ? r.natural : "",
@@ -150,30 +154,31 @@ async function cmdAdd(json) {
   console.log("ok " + created.name.split("/").pop());
 }
 
-/* The page's 📞 호출 button writes english_state/live {active, started, beat}. Treat it as live only while the
-   page keeps beating (it beats every 60s), and never longer than an hour. */
-const LIVE_PATH = "/english_state/live";
-async function readLive() {
-  try { return docToObj(await api("GET", LIVE_PATH)); } catch (e) { if (/^404/.test(e.message)) return {}; throw e; }
-}
+/* Each signed-in learner's 📞 호출 button writes english_state/live_<uid> {active, started, beat}. A doc counts as
+   live only while its page keeps beating (every 60s), and never longer than an hour. */
 const isLive = (l, now) => !!l.active && now - (l.beat || 0) < 180000 && now - (l.started || 0) < 3600000;
+async function liveDocs() {
+  const r = await api("GET", "/english_state?pageSize=50");
+  return (r.documents || []).map(docToObj);
+}
 
 async function cmdWatch() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  let wasLive = false, lastKey = "", lastAck = 0;
+  let wasLive = "", lastKey = "", lastAck = 0;
   console.log("watching: idle until 📞 호출");
   for (;;) {
-    let live = false;
+    let live = [];
     try {
       const now = Date.now();
-      live = isLive(await readLive(), now);
-      if (live !== wasLive) {
-        console.log(live ? "LIVE on" : "LIVE off");
-        wasLive = live; lastKey = "";
+      live = (await liveDocs()).filter((l) => isLive(l, now));
+      const liveKey = live.map((l) => l.email || l.id).sort().join(",");
+      if (liveKey !== wasLive) {
+        console.log(live.length ? "LIVE on " + liveKey : "LIVE off");
+        wasLive = liveKey; lastKey = "";
       }
-      if (live) {
+      if (live.length) {
         if (now - lastAck > 30000) {
-          await api("PATCH", `${LIVE_PATH}?updateMask.fieldPaths=ack`, { fields: { ack: enc(now) } });
+          for (const l of live) await api("PATCH", `/english_state/${l.id}?updateMask.fieldPaths=ack`, { fields: { ack: enc(now) } });
           lastAck = now;
         }
         const pend = await pendingTurns();
@@ -182,8 +187,23 @@ async function cmdWatch() {
         lastKey = pend.length ? key : "";
       }
     } catch (e) { console.error("watch error: " + e.message); }
-    await sleep(live ? 2000 : 20000);
+    await sleep(live.length ? 2000 : 20000);
   }
+}
+
+async function cmdBackfill() {
+  const ai = await runQuery({ from: [{ collectionId: COL }], where: { fieldFilter: { field: { fieldPath: "role" }, op: "EQUAL", value: enc("ai") } } });
+  let n = 0;
+  for (const t of ai) {
+    if (t.email || !t.re) continue;
+    let learner;
+    try { learner = docToObj(await api("GET", `/${COL}/${t.re}`)); } catch { continue; }
+    if (!learner.email) continue;
+    await api("PATCH", `/${COL}/${t.id}?updateMask.fieldPaths=email&updateMask.fieldPaths=uid`,
+      { fields: { email: enc(learner.email), uid: enc(learner.uid || "") } });
+    n++;
+  }
+  console.log(`backfilled ${n} of ${ai.length} AI replies`);
 }
 
 (async () => {
@@ -192,6 +212,7 @@ async function cmdWatch() {
     if (cmd === "pending") await cmdPending();
     else if (cmd === "add") await cmdAdd(arg);
     else if (cmd === "watch") await cmdWatch();
-    else { console.log("usage: talkpen.js pending | add '<json>' | watch"); process.exit(1); }
+    else if (cmd === "backfill") await cmdBackfill();
+    else { console.log("usage: talkpen.js pending | add '<json>' | watch | backfill"); process.exit(1); }
   } catch (e) { console.error("error: " + e.message); process.exit(1); }
 })();

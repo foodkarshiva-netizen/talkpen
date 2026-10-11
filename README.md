@@ -13,11 +13,20 @@
 3. PC 세션: `pending` 으로 읽고 `add` 로 `{role:"ai", re:<id>, ...}` 저장 (사용자 턴은 `answered:true`)
 4. 페이지: 실시간으로 받아서 표시
 
-## Firestore 규칙 (추가 필요)
+## Firestore 규칙
+
+사용자는 두 명(나, 아내). 각자 자기 대화만 읽고 쓴다.
 
 ```
+function talkpenUser() {
+  return request.auth != null && request.auth.token.email in ["foodkarshiva@gmail.com", "eori211204@gmail.com"];
+}
 match /english_turns/{id} {
-  allow read, write: if request.auth != null && request.auth.token.email == "foodkarshiva@gmail.com";
+  allow read, update, delete: if talkpenUser() && resource.data.email == request.auth.token.email;
+  allow create: if talkpenUser() && request.resource.data.email == request.auth.token.email;
+}
+match /english_state/{id} {
+  allow read, write: if talkpenUser() && id == "live_" + request.auth.uid;
 }
 ```
 
