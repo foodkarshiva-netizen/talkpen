@@ -133,7 +133,8 @@ textarea:focus { border-color: var(--accent); outline: none; }
       <button class="ghost" id="logoutBtn" type="button">로그아웃</button>
     </div>
     <div class="controls">
-      <div class="scen" id="scen" role="group" aria-label="대화 상황"></div>
+      <button class="ghost" id="newBtn" type="button">새 대화</button>
+      <span style="flex:1"></span>
       <select id="lang" aria-label="언어">
         <option value="en">🇺🇸 English</option>
         <option value="ja">🇯🇵 日本語</option>
@@ -185,21 +186,6 @@ const SCENARIOS = [
   { id: "free", name: "자유 대화",
     en: { opener: "Hey! How's your day going so far? Did you do anything fun today?", ko: "안녕! 오늘 하루 어때? 재밌는 거 했어?" },
     ja: { opener: "やあ！今日はどんな一日？何か楽しいことあった？", reading: "やあ！きょうはどんないちにち？なにかたのしいことあった？", ko: "안녕! 오늘 하루 어때? 재밌는 거 있었어?" } },
-  { id: "cafe", name: "카페 주문",
-    en: { opener: "Hi there, welcome in! What can I get started for you today?", ko: "어서 오세요! 뭐 준비해 드릴까요?" },
-    ja: { opener: "いらっしゃいませ！ご注文はお決まりですか？", reading: "いらっしゃいませ！ごちゅうもんはおきまりですか？", ko: "어서 오세요! 주문 정하셨어요?" } },
-  { id: "travel", name: "여행·공항",
-    en: { opener: "Good morning! May I see your passport, please? Where are you flying to today?", ko: "여권 좀 보여주시겠어요? 오늘 어디로 가세요?" },
-    ja: { opener: "おはようございます。パスポートを拝見してもよろしいですか？今日はどちらまで？", reading: "おはようございます。パスポートをはいけんしてもよろしいですか？きょうはどちらまで？", ko: "좋은 아침입니다. 여권 좀 볼 수 있을까요? 오늘 어디까지 가세요?" } },
-  { id: "interview", name: "면접",
-    en: { opener: "Thanks for coming in today. To start, could you tell me a little about yourself?", ko: "와주셔서 감사해요. 먼저 자기소개 부탁드려요." },
-    ja: { opener: "本日はお越しいただきありがとうございます。まず、簡単に自己紹介をお願いできますか？", reading: "ほんじつはおこしいただきありがとうございます。まず、かんたんにじこしょうかいをおねがいできますか？", ko: "오늘 와주셔서 감사합니다. 먼저 간단히 자기소개 부탁드려요." } },
-  { id: "work", name: "직장 스몰톡",
-    en: { opener: "Morning! How was your weekend? Get up to anything good?", ko: "좋은 아침! 주말 어땠어요?" },
-    ja: { opener: "おはようございます！週末はどうでしたか？何かしました？", reading: "おはようございます！しゅうまつはどうでしたか？なにかしました？", ko: "좋은 아침이에요! 주말 어땠어요? 뭐 했어요?" } },
-  { id: "doctor", name: "병원·약국",
-    en: { opener: "Hello, have a seat. So, what brings you in today?", ko: "앉으세요. 오늘 어디가 불편해서 오셨어요?" },
-    ja: { opener: "こんにちは、どうぞおかけください。今日はどうされましたか？", reading: "こんにちは、どうぞおかけください。きょうはどうされましたか？", ko: "안녕하세요, 앉으세요. 오늘 어디가 불편하세요?" } },
 ];
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -208,6 +194,7 @@ const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? 
 
 let me = null, turns = [], unsub = null;
 let pref = store.get("talkpen.pref", { scenario: "free", level: "intermediate" });
+pref.scenario = "free";
 if (!LANGS[pref.lang]) pref.lang = "en";
 if (!pref.started) pref.started = { en: pref.startedAt || 0, ja: 0 };   // each language keeps its own on-screen conversation
 const scenario = () => SCENARIOS.find((s) => s.id === pref.scenario) || SCENARIOS[0];
@@ -279,7 +266,6 @@ function sessionTurns() {
 }
 function render() {
   const s = scenario();
-  $("scen").innerHTML = SCENARIOS.map((x) => `<button class="chip" type="button" data-scen="${x.id}" aria-pressed="${x.id === s.id}">${x.name}</button>`).join("");
   $("level").value = pref.level;
   $("lang").value = pref.lang;
   $("input").placeholder = `🎤를 누르고 ${lang().name}로 말하세요 (타이핑도 돼요)`;
@@ -307,12 +293,10 @@ $("chat").addEventListener("click", (e) => {
   const ko = e.target.closest("[data-ko]");
   if (ko) { const el = ko.closest(".msg").querySelector(".ko"); el.hidden = !el.hidden; ko.textContent = el.hidden ? "해석" : "해석 숨기기"; }
 });
-$("scen").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-scen]");
-  if (!b || b.dataset.scen === pref.scenario) return;
-  pref = { ...pref, scenario: b.dataset.scen, started: { ...pref.started, [pref.lang]: Date.now() } };
+$("newBtn").onclick = () => {
+  pref = { ...pref, started: { ...pref.started, [pref.lang]: Date.now() } };
   store.set("talkpen.pref", pref); render();
-});
+};
 $("lang").onchange = (e) => { pref.lang = e.target.value; store.set("talkpen.pref", pref); render(); };
 $("level").onchange = (e) => { pref.level = e.target.value; store.set("talkpen.pref", pref); };
 
